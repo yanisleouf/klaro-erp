@@ -1368,6 +1368,47 @@
             setTimeout(() => { document.getElementById('modal-input').value = team[i]; }, 50);
         }
         function delClient(i) { openModal('confirm', 'Confirmation', `Supprimer le client <b>${clients[i].name}</b> ?`, (v) => { if(v){ logAudit(`Client supprimé: ${clients[i].name}`); clients.splice(i, 1); save(); render(); showToast("Client supprimé.", "success"); } }, 'fa-trash', 'var(--danger)'); }
+        function openCrmModal(index = -1) {
+            const isEdit = index > -1;
+            const c = isEdit ? clients[index] : {name:'', address:'', rc:'', nif:'', nis:'', art:'', phone:''};
+            
+            const html = `
+                <div class="grid-2" style="gap:10px; text-align:left;">
+                    <div style="grid-column: span 2;"><label>Nom de l'Entreprise</label><input id="crm_name" value="${c.name}" style="margin-bottom:0;"></div>
+                    <div style="grid-column: span 2;"><label>Adresse Complète</label><input id="crm_addr" value="${c.address}" style="margin-bottom:0;" placeholder="Optionnel"></div>
+                    <div style="grid-column: span 2;"><label>Téléphone</label><input id="crm_phone" value="${c.phone}" style="margin-bottom:0;" placeholder="Optionnel"></div>
+                    <div><label>N° RC</label><input id="crm_rc" value="${c.rc}" style="margin-bottom:0;" placeholder="Optionnel"></div>
+                    <div><label>N° NIF</label><input id="crm_nif" value="${c.nif}" style="margin-bottom:0;" placeholder="Optionnel"></div>
+                    <div><label>N° NIS</label><input id="crm_nis" value="${c.nis}" style="margin-bottom:0;" placeholder="Optionnel"></div>
+                    <div><label>Article d'impo.</label><input id="crm_art" value="${c.art}" style="margin-bottom:0;" placeholder="Optionnel"></div>
+                </div>
+            `;
+            
+            openModal('custom', isEdit ? "Modifier le Client" : "Ajouter un Client", html, (val) => {
+                if(val) {
+                    const newC = {
+                        name: document.getElementById('crm_name').value || 'Sans Nom', address: document.getElementById('crm_addr').value || '',
+                        phone: document.getElementById('crm_phone').value || '', rc: document.getElementById('crm_rc').value || '',
+                        nif: document.getElementById('crm_nif').value || '', nis: document.getElementById('crm_nis').value || '', art: document.getElementById('crm_art').value || ''
+                    };
+                    if(isEdit) clients[index] = newC; else clients.push(newC);
+                    logAudit(`Client ${isEdit ? 'modifié' : 'créé'} : ${newC.name}`); save(); render(); showToast(isEdit ? "Client mis à jour" : "Nouveau client créé", "success");
+                }
+            }, 'fa-user-tie', 'var(--brand)');
+        }
+
+        function updateClientPreview() {
+            const cSel = document.getElementById('lC');
+            if(!cSel) return;
+            const name = cSel.value;
+            const c = clients.find(x => x.name === name);
+            if(c) {
+                let txt = [];
+                if(c.address && c.address !== '-') txt.push(c.address);
+                if(c.phone && c.phone !== '-') txt.push(`Tel: ${c.phone}`);
+                document.getElementById('clientPreview').innerText = txt.join(' | ');
+            }
+        }
         
         // --- FONCTION WHATSAPP ---
         function sendWhatsAppBilan() {
