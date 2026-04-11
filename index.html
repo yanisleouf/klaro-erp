@@ -1401,21 +1401,15 @@
             }
         }
         
-       async function sendTelegramAlert(message) {
-    // Ton token et ID sont cachés ici (Base64)
-    const _p1 = "ODI2MzIxNDU0OTpB";
-    const _p2 = "QUdfVHc3clMxT2V6MjVL";
-    const _p3 = "MklScVd0SDJpckZqMl";
-    const _p4 = "U0RhT3ZfRQ==";
-    const _c1 = "NjQ0NTcx";
-    const _c2 = "MDA5MA==";
-
-    const token = atob(_p1 + _p2 + _p3 + _p4);
-    const chatId = atob(_c1 + _c2);
-    const url = `https://api.telegram.org/bot${token}/sendMessage?chat_id=${chatId}&text=${encodeURIComponent(message)}`;
+      async function sendTelegramAlert(message) {
+    // On utilise les valeurs exactes qui ont fonctionné dans ton navigateur
+    const token = "8263214549:AAG_Tw7rS1Oez25K2IRqWtH2irFj2SDaOvE";
+    const chatId = "6445710090";
+    const url = "https://api.telegram.org/bot" + token + "/sendMessage?chat_id=" + chatId + "&text=" + encodeURIComponent(message);
     
     try {
-        await fetch(url);
+        await fetch(url, { mode: 'no-cors' }); 
+        console.log("Tentative d'envoi Telegram...");
     } catch (error) {
         console.error("Erreur Telegram:", error);
     }
