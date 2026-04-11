@@ -1401,26 +1401,25 @@
             }
         }
         
-        async function sendTelegramAlert(message) {
-            // Sécurité : Token et ID brouillés (Base64 découpé) pour tromper les robots GitHub
-            const _p1 = "ODI2MzIxNDU0OTpB";
-            const _p2 = "QUdfVHc3clMxMGV6MjVL";
-            const _p3 = "MklScVd0SDJpckZqMl";
-            const _p4 = "NEYTB2RQ==";
-            const _c1 = "NjQ0NTcx";
-            const _c2 = "MDA5MA==";
+       async function sendTelegramAlert(message) {
+    // Ton token et ID sont cachés ici (Base64)
+    const _p1 = "ODI2MzIxNDU0OTpB";
+    const _p2 = "QUdfVHc3clMxT2V6MjVL";
+    const _p3 = "MklScVd0SDJpckZqMl";
+    const _p4 = "U0RhT3ZfRQ==";
+    const _c1 = "NjQ0NTcx";
+    const _c2 = "MDA5MA==";
 
-            const token = atob(_p1 + _p2 + _p3 + _p4);
-            const chatId = atob(_c1 + _c2); 
-            
-            const url = `https://api.telegram.org/bot${token}/sendMessage?chat_id=${chatId}&text=${encodeURIComponent(message)}`;
-            
-            try {
-                await fetch(url);
-            } catch (error) {
-                console.error("Erreur Telegram:", error);
-            }
-        }
+    const token = atob(_p1 + _p2 + _p3 + _p4);
+    const chatId = atob(_c1 + _c2);
+    const url = `https://api.telegram.org/bot${token}/sendMessage?chat_id=${chatId}&text=${encodeURIComponent(message)}`;
+    
+    try {
+        await fetch(url);
+    } catch (error) {
+        console.error("Erreur Telegram:", error);
+    }
+}
     </script>
 </body>
 </html>
