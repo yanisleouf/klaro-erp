@@ -410,10 +410,9 @@
         }
 
         function resetPin() { enteredPin = ""; updatePinDots(); }
-
-        function checkLogin() {
+function checkLogin() {
     if (enteredPin === config.pin) {
-        // ALERTE TELEGRAM
+        // ENVOI DE L'ALERTE ICI (On l'appelle !)
         sendTelegramAlert("✅ CONNEXION RÉUSSIE sur Klaro ERP !");
         
         document.getElementById('login-screen').style.opacity = '0';
@@ -423,14 +422,13 @@
             logConnectionAlert("SUCCESS");
         }, 400);
     } else {
-        // ALERTE TENTATIVE DE FRAUDE
         if(enteredPin.length === 4) {
-            sendTelegramAlert("⚠️ ATTENTION : Tentative de connexion échouée avec le PIN : " + enteredPin);
+            // ALERTE SI LE CODE EST FAUX
+            sendTelegramAlert("⚠️ TENTATIVE ÉCHOUÉE avec le PIN : " + enteredPin);
+            showToast("Code PIN incorrect", "error");
+            logConnectionAlert("FAIL");
+            resetPin();
         }
-        
-        showToast("Code PIN incorrect", "error");
-        logConnectionAlert("FAIL");
-        resetPin();
     }
 }
 
