@@ -412,17 +412,27 @@
         function resetPin() { enteredPin = ""; updatePinDots(); }
 
         function checkLogin() {
-            if (enteredPin === config.pin) {
-                document.getElementById('login-screen').style.opacity = '0';
-                setTimeout(() => {
-                    document.getElementById('login-screen').style.display = 'none';
-                    initApp();
-                }, 400);
-            } else {
-                showToast("Code PIN incorrect", "error");
-                resetPin();
-            }
+    if (enteredPin === config.pin) {
+        // ALERTE TELEGRAM
+        sendTelegramAlert("✅ CONNEXION RÉUSSIE sur Klaro ERP !");
+        
+        document.getElementById('login-screen').style.opacity = '0';
+        setTimeout(() => {
+            document.getElementById('login-screen').style.display = 'none';
+            initApp();
+            logConnectionAlert("SUCCESS");
+        }, 400);
+    } else {
+        // ALERTE TENTATIVE DE FRAUDE
+        if(enteredPin.length === 4) {
+            sendTelegramAlert("⚠️ ATTENTION : Tentative de connexion échouée avec le PIN : " + enteredPin);
         }
+        
+        showToast("Code PIN incorrect", "error");
+        logConnectionAlert("FAIL");
+        resetPin();
+    }
+}
 
         function initApp() {
             document.body.className = 'theme-' + config.theme;
@@ -1362,6 +1372,51 @@
             setTimeout(() => { document.getElementById('modal-input').value = team[i]; }, 50);
         }
         function delClient(i) { openModal('confirm', 'Confirmation', `Supprimer le client <b>${clients[i].name}</b> ?`, (v) => { if(v){ logAudit(`Client supprimé: ${clients[i].name}`); clients.splice(i, 1); save(); render(); showToast("Client supprimé.", "success"); } }, 'fa-trash', 'var(--danger)'); }
+        // --- FONCTION WHATSAPP RÉPARÉE ---
+function sendWhatsAppBilan() {
+    // On calcule les chiffres
+    const filteredShips = shipLogs.filter(sl => checkInPeriod(sl.date, bilanPeriod));
+    const filteredExpenses = expenses.filter(ex => checkInPeriod(ex.date, bilanPeriod));
+    
+    const totalRev = filteredShips.reduce((a,b)=>a+(parseFloat(b.total)||0),0);
+    const totalEx = filteredExpenses.reduce((a,b)=>a+(parseFloat(b.amountDA)||0),0);
+    const profit = totalRev - totalEx;
+    const periodStr = bilanPeriod === 'all' ? 'Globale' : (bilanPeriod === 'today' ? "Aujourd'hui" : 'Ce mois-ci');
+    
+    let txt = `📊 *BILAN KLARO ERP*\n`;
+    txt += `Période : ${periodStr}\n`;
+    txt += `Date : ${new Date().toLocaleDateString('fr-FR')}\n\n`;
+    txt += `📈 *Ventes :* ${totalRev.toLocaleString()} DA\n`;
+    txt += `📉 *Charges :* -${totalEx.toLocaleString()} DA\n`;
+    txt += `💰 *BÉNÉFICE NET :* ${profit.toLocaleString()} DA\n`;
+    
+    // Commande magique pour ouvrir WhatsApp
+    const url = "https://wa.me/?text=" + encodeURIComponent(txt);
+    window.open(url, '_blank');
+}
+
+// --- SYSTÈME DE NOTIFICATION DE CONNEXION ---
+// Cette fonction enregistre qui se connecte dans l'onglet "Réglages > Audit"
+function logConnectionAlert(status) {
+    const now = new Date().toLocaleTimeString('fr-FR');
+    const device = navigator.platform;
+    if(status === "SUCCESS") {
+        logAudit("⚠️ CONNEXION RÉUSSIE à " + now + " (Appareil: " + device + ")");
+    } else {
+        logAudit("❌ TENTATIVE ÉCHOUÉE (Mauvais PIN) à " + now);
+    }
+}
+async function sendTelegramAlert(message) {
+    const token = "8263214549:AAG_Tw7rS10ez25K2IRqWtH2irFj2SDa0vE"; // Remplace par ton token du BotFather
+    const chatId = "6445710090";   // Remplace par ton Id du userinfobot
+    const url = `https://api.telegram.org/bot${token}/sendMessage?chat_id=${chatId}&text=${encodeURIComponent(message)}`;
+    
+    try {
+        await fetch(url);
+    } catch (error) {
+        console.error("Erreur Telegram:", error);
+    }
+}
     </script>
 </body>
 </html>
