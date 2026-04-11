@@ -1483,11 +1483,38 @@
 
         // --- MAJ INFOS LEGALES & SECURITE ---
         function updateComp(key, val) { config.company[key] = val; logAudit(`Configuration entreprise modifiée`); showToast("Info légale enregistrée", "success"); }
-        function changePin() {
-            const p = document.getElementById('newPin').value.trim();
-            if(p.length >= 4) { config.pin = p; logAudit(`Code PIN administrateur modifié`); showToast("Code PIN sécurisé mis à jour.", "success"); document.getElementById('newPin').value = '';}
-            else showToast("Le PIN doit faire au moins 4 caractères.", "error");
+       let tempPinCode = ""; // Variable temporaire pour le PIN
+let verificationCode2FA = ""; // Le code envoyé sur Telegram
+
+function changePin() {
+    const newPin = document.getElementById('newPin').value.trim();
+    
+    if (newPin.length < 4) {
+        showToast("Le PIN doit faire au moins 4 caractères.", "error");
+        return;
+    }
+
+    // 1. On génère un code de vérification aléatoire à 6 chiffres
+    verificationCode2FA = Math.floor(100000 + Math.random() * 900000).toString();
+    tempPinCode = newPin; // On stocke le futur PIN temporairement
+
+    // 2. On t'envoie ce code sur Telegram
+    sendTelegramAlert("🔐 SÉCURITÉ : Demande de changement de PIN.\nVotre code de vérification est : " + verificationCode2FA);
+
+    // 3. On ouvre une modale pour demander le code
+    openModal('prompt', 'Double Authentification', 'Entrez le code de vérification envoyé sur votre Telegram :', (val) => {
+        if (val === verificationCode2FA) {
+            config.pin = tempPinCode;
+            logAudit(`Code PIN administrateur modifié avec succès (via 2FA)`);
+            save();
+            showToast("Code PIN mis à jour avec succès !", "success");
+            document.getElementById('newPin').value = '';
+        } else if (val !== null) {
+            showToast("Code de vérification incorrect. Action annulée.", "error");
+            logAudit("❌ Tentative de changement de PIN échouée (Mauvais code 2FA)");
         }
+    }, 'fa-user-shield', 'var(--brand)');
+}
         function addEmp() { const n = document.getElementById('newEmp').value.trim(); if(n && !team.includes(n)) { team.push(n); logAudit(`Opérateur ajouté: ${n}`); render(); showToast("Opérateur ajouté.", "success"); } }
         function delEmp(i) { openModal('confirm', 'Confirmation', `Supprimer <b>${team[i]}</b> ?`, (v) => { if(v){ const name = team[i]; team.splice(i, 1); logAudit(`Opérateur supprimé: ${name}`); render(); showToast("Opérateur supprimé.", "success"); } }, 'fa-user-minus', 'var(--danger)'); }
         function editEmp(i) {
