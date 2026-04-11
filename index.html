@@ -121,8 +121,9 @@
         .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 15px; }
         .grid-1-2 { display: grid; grid-template-columns: 1fr 2fr; gap: 20px; }
         
-        .table-responsive { width: 100%; overflow-x: auto; }
-        table { width: 100%; border-collapse: separate; border-spacing: 0; min-width: 500px; }
+        /* TABLEAUX OPTIMISES POUR MOBILE */
+        .table-responsive { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; border-radius: 8px; }
+        table { width: 100%; border-collapse: separate; border-spacing: 0; min-width: max-content; }
         th { background: var(--panel); padding: 14px 12px; text-align: left; font-size: 0.8rem; text-transform: uppercase; color: var(--muted); border-bottom: 2px solid var(--border); white-space: nowrap; }
         td { padding: 14px 12px; border-bottom: 1px solid var(--border); font-size: 0.95rem; }
         tbody tr:hover td { background-color: rgba(255, 255, 255, 0.03); }
@@ -152,13 +153,13 @@
         @keyframes slideInRight { to { transform: translateX(0); opacity: 1; } } @keyframes fadeOutRight { to { transform: translateX(120%); opacity: 0; } }
 
         #custom-modal-overlay { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.7); backdrop-filter: blur(4px); z-index: 10000; display: none; align-items: center; justify-content: center; opacity: 0; transition: opacity 0.3s ease; padding: 20px; }
-        .custom-modal { background: var(--panel); border: 1px solid var(--border); border-radius: 16px; padding: 30px; width: 100%; max-width: 450px; text-align: center; transform: scale(0.9); transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5); }
+        .custom-modal { background: var(--panel); border: 1px solid var(--border); border-radius: 16px; padding: 30px; width: 100%; max-width: 450px; text-align: center; transform: scale(0.9); transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5); max-height: 90vh; overflow-y: auto; }
         #custom-modal-overlay.active { opacity: 1; display: flex; } #custom-modal-overlay.active .custom-modal { transform: scale(1); }
         .modal-icon { font-size: 3rem; margin-bottom: 15px; color: var(--brand); }
         .modal-title { font-size: 1.4rem; font-weight: 800; color: var(--text); margin: 0 0 10px 0; }
         .modal-message { color: var(--muted); font-size: 1rem; margin-bottom: 25px; line-height: 1.5; }
         .modal-input { margin-bottom: 25px; text-align: center; }
-        .modal-actions { display: flex; gap: 15px; justify-content: center; }
+        .modal-actions { display: flex; gap: 15px; justify-content: center; margin-top: 15px; }
         .modal-btn-cancel { background: transparent; border: 1px solid var(--border); color: var(--text); }
 
         ::-webkit-scrollbar { width: 8px; height: 8px; } ::-webkit-scrollbar-track { background: transparent; } ::-webkit-scrollbar-thumb { background: rgba(148, 163, 184, 0.3); border-radius: 10px; }
@@ -202,7 +203,10 @@
             #gSearch { padding: 8px 10px 8px 35px; font-size: 0.9rem; }
             .action-wrapper { width: 38px; height: 38px; }
             .card { padding: 15px; margin-bottom: 15px; }
+            
+            /* Empiler les éléments sur mobile au lieu de côte à côte */
             .grid-2, .grid-3, .grid-1-2 { grid-template-columns: 1fr; gap: 12px; }
+            
             #notifPanel { width: calc(100vw - 20px); right: -10px; max-width: 320px; top: 50px; }
             .action-header-buttons { flex-direction: column; width: 100%; align-items: stretch !important; gap: 10px !important; }
             .action-header-buttons select { width: 100% !important; margin: 0 !important; }
@@ -332,8 +336,7 @@
             projectId: "klaro-9fd93",
             storageBucket: "klaro-9fd93.firebasestorage.app",
             messagingSenderId: "735641057041",
-            appId: "1:735641057041:web:61cdca602e5fd90783beb0",
-            measurementId: "G-6Q5C40QBWY"
+            appId: "1:735641057041:web:61cdca602e5fd90783beb0"
         };
 
         // Initialisation de Firebase
@@ -438,7 +441,7 @@
             showToast("Système déverrouillé", "success");
         }
 
-        // --- SAUVEGARDE CLOUD ---
+        // --- SAUVEGARDE CLOUD CORRIGEE ---
         function save() {
             dbRef.set({
                 stock, logs, models, shipLogs, expenses, audit, team, clients, rates, config
@@ -450,10 +453,10 @@
             });
         }
 
-        function logAudit(action) {
+        function logAudit(action, doNotSaveYet = false) {
             audit.unshift({id: Date.now(), date: new Date().toLocaleString('fr-FR'), user: sessionAdmin ? 'Admin' : 'Opérateur', action: action});
             if(audit.length > 100) audit.pop();
-            save();
+            if(!doNotSaveYet) save(); // Sauvegarde optionnelle pour éviter les conflits
         }
 
         // --- CALCULATRICE JS ---
@@ -803,7 +806,6 @@
                     </div>`;
             }
             else if(currentTab === 'Livraison') {
-                const totalPanier = currentCart.reduce((a,b)=> a+b.total, 0);
                 area.innerHTML = `
                     <div class="grid-2">
                         <div class="card">
@@ -953,11 +955,12 @@
                                         
                                         const actionValider = (f.status === 'pending' && sessionAdmin) ? `<button style="background:var(--success); color:white; border:none; border-radius:4px; padding:6px 10px; cursor:pointer; font-size:0.75rem; font-weight:bold; transition:0.2s;" onclick="markAsPaid('${f.id}')" title="Marquer payé"><i class="fas fa-dollar-sign"></i></button>` : '';
                                         const actionLivrer = (f.delivery !== 'delivered' && sessionAdmin) ? `<button style="background:var(--brand); color:white; border:none; border-radius:4px; padding:6px 10px; cursor:pointer; font-size:0.75rem; font-weight:bold; transition:0.2s;" onclick="markAsDelivered('${f.id}')" title="Valider livraison"><i class="fas fa-box-open"></i></button>` : '';
-                                        const actionRetour = sessionAdmin ? `<button style="background:transparent; color:var(--danger); border:1px solid var(--danger); border-radius:4px; padding:6px 10px; cursor:pointer; font-size:0.75rem; font-weight:bold; transition:0.2s;" onclick="returnItem('${f.id}')" title="Annuler"><i class="fas fa-undo"></i></button>` : '';
+                                        const actionRetour = sessionAdmin ? `<button style="background:transparent; color:var(--warning); border:1px solid var(--warning); border-radius:4px; padding:6px 10px; cursor:pointer; font-size:0.75rem; font-weight:bold; transition:0.2s;" onclick="returnItem('${f.id}')" title="Annuler le BL (Remet en stock)"><i class="fas fa-undo"></i></button>` : '';
+                                        const actionSupprimer = sessionAdmin ? `<button style="background:transparent; color:var(--danger); border:1px solid var(--danger); border-radius:4px; padding:6px 10px; cursor:pointer; font-size:0.75rem; font-weight:bold; transition:0.2s;" onclick="deleteShip('${f.id}')" title="Supprimer de l'historique"><i class="fas fa-trash"></i></button>` : '';
                                         
                                         const itemsList = f.items ? f.items.map(it=>`<span style="background:rgba(255,255,255,0.05); padding:2px 6px; border-radius:4px; font-size:0.8rem; border:1px solid var(--border); display:inline-block; margin:2px 0; white-space:nowrap;">${it.qt === '-' ? '' : it.qt+'x '} ${it.mod}</span>`).join('<br>') : `<span style="background:rgba(255,255,255,0.05); padding:2px 6px; border-radius:4px; font-size:0.8rem; border:1px solid var(--border);">${f.mod}</span>`;
 
-                                        return `<tr><td style="color:var(--muted); font-size:0.85rem; white-space:nowrap;">${f.date}<br><small style="color:var(--text); font-weight:bold;">${f.bl||'-'}</small></td><td><span style="font-weight:600; font-size:1.05rem;">${f.client}</span><br><div style="margin-top:5px;">${badgeStatus}<br>${badgeLivraison}</div></td><td>${itemsList}</td><td style="text-align:center; font-weight:800; font-size:1.1rem; white-space:nowrap;">${(f.total||0).toLocaleString()}</td><td style="text-align:right;"><div style="display:flex; justify-content:flex-end; gap:5px;">${actionValider}${actionLivrer}${actionRetour}</div></td></tr>`;
+                                        return `<tr><td style="color:var(--muted); font-size:0.85rem; white-space:nowrap;">${f.date}<br><small style="color:var(--text); font-weight:bold;">${f.bl||'-'}</small></td><td><span style="font-weight:600; font-size:1.05rem;">${f.client}</span><br><div style="margin-top:5px;">${badgeStatus}<br>${badgeLivraison}</div></td><td>${itemsList}</td><td style="text-align:center; font-weight:800; font-size:1.1rem; white-space:nowrap;">${(f.total||0).toLocaleString()}</td><td style="text-align:right;"><div style="display:flex; justify-content:flex-end; gap:5px; flex-wrap:wrap;">${actionValider}${actionLivrer}${actionRetour}${actionSupprimer}</div></td></tr>`;
                                     }
                                 }).join('') : `<tr><td colspan="5" style="text-align:center; padding: 40px; color:var(--muted);">Aucun enregistrement</td></tr>`}
                             </tbody>
@@ -1030,7 +1033,7 @@
                             <div class="card" style="margin-bottom:0;">
                                 <h3><i class="fas fa-users" style="color:var(--brand); margin-right:8px;"></i>Équipe & Clients</h3>
                                 <button class="btn-action" style="margin-bottom:15px; background:var(--panel); border:1px solid var(--border); color:var(--text);" onclick="openCrmModal()"><i class="fas fa-user-plus"></i> Ajouter un client</button>
-                                <div class="table-responsive" style="max-height: 100px; margin-bottom:15px; border:1px solid var(--border); border-radius:8px;">
+                                <div class="table-responsive" style="max-height: 150px; margin-bottom:15px; border:1px solid var(--border); border-radius:8px;">
                                     <table><tbody>${clients.map((c, i) => `<tr><td style="padding: 6px 10px;"><b>${c.name}</b></td><td style="text-align:right; padding: 6px 10px;"><i class="fas fa-edit" style="color:var(--brand); cursor:pointer; margin-right:10px;" onclick="openCrmModal(${i})"></i><i class="fas fa-trash" style="color:var(--danger); cursor:pointer;" onclick="delClient(${i})"></i></td></tr>`).join('')}</tbody></table>
                                 </div>
 
@@ -1149,21 +1152,55 @@
             });
         }
 
-        // --- FONCTIONS CORE ---
-        function addS() { const r=document.getElementById('rR').value, w=document.getElementById('rW').value, t=document.getElementById('rT').value; if(r&&w){ stock.unshift({id:Date.now().toString(), ref:r, res:parseFloat(w).toFixed(2), threshold:parseFloat(t)||5}); logAudit(`Bobine ajoutée: ${r}`); save(); render(); showToast("Bobine ajoutée.", "success"); } else showToast("Champs incomplets.", "warning"); }
-        function delS(id) { const index = stock.findIndex(x => x.id === id); if(index > -1) { openModal('confirm', 'Attention', `Voulez-vous supprimer la bobine <b>${stock[index].ref}</b> ?`, (v) => { if(v){ logAudit(`Bobine supprimée: ${stock[index].ref}`); stock.splice(index, 1); save(); render(); showToast("Bobine supprimée.", "success"); } }, 'fa-trash', 'var(--danger)'); } }
+        function renderCartList() {
+            const list = document.getElementById('cartDOMList');
+            const totalE = document.getElementById('cartDOMTotal');
+            if(!list || !totalE) return;
+
+            if(currentCart.length === 0) {
+                list.innerHTML = `<div style="text-align:center; padding: 30px; color:var(--muted);"><i class="fas fa-box-open" style="font-size:2rem; opacity:0.3; display:block; margin-bottom:10px;"></i>Panier vide</div>`;
+                totalE.innerText = '0 DA';
+                return;
+            }
+
+            let html = '';
+            let total = 0;
+            currentCart.forEach((it, idx) => {
+                total += it.total;
+                const isCustom = it.qt === '-';
+                const qtyBadge = isCustom ? `<span style="background:var(--warning); color:#000; padding:2px 6px; border-radius:4px; font-size:0.75rem; font-weight:bold;">${it.pcs} u.</span>` : `<span style="background:var(--brand); color:#fff; padding:2px 6px; border-radius:4px; font-size:0.75rem; font-weight:bold;">${it.qt} Crt.</span> <span style="color:var(--muted); font-size:0.75rem;">(${it.pcs} pcs)</span>`;
+                html += `
+                    <div style="display:flex; justify-content:space-between; align-items:center; padding: 10px 0; border-bottom:1px solid rgba(255,255,255,0.05);">
+                        <div style="display:flex; flex-direction:column;">
+                            <span style="font-weight:600; color:var(--text);">${it.mod}</span>
+                            <div style="margin-top:4px;">${qtyBadge}</div>
+                        </div>
+                        <div style="display:flex; align-items:center; gap:15px;">
+                            <span style="font-weight:800; color:var(--neon);">${it.total.toLocaleString()} DA</span>
+                            <button onclick="removeCart(${idx})" style="background:transparent; border:none; color:var(--danger); cursor:pointer;"><i class="fas fa-times"></i></button>
+                        </div>
+                    </div>
+                `;
+            });
+            list.innerHTML = html;
+            totalE.innerText = total.toLocaleString() + ' DA';
+        }
+
+        // --- FONCTIONS CORE (ACTIONS) ---
+        function addS() { const r=document.getElementById('rR').value, w=document.getElementById('rW').value, t=document.getElementById('rT').value; if(r&&w){ stock.unshift({id:Date.now().toString(), ref:r, res:parseFloat(w).toFixed(2), threshold:parseFloat(t)||5}); logAudit(`Bobine ajoutée: ${r}`); render(); showToast("Bobine ajoutée.", "success"); } else showToast("Champs incomplets.", "warning"); }
+        function delS(id) { const index = stock.findIndex(x => x.id === id); if(index > -1) { openModal('confirm', 'Attention', `Voulez-vous supprimer la bobine <b>${stock[index].ref}</b> ?`, (v) => { if(v){ const ref = stock[index].ref; stock.splice(index, 1); logAudit(`Bobine supprimée: ${ref}`); render(); showToast("Bobine supprimée.", "success"); } }, 'fa-trash', 'var(--danger)'); } }
         function editS(id) { 
             const index = stock.findIndex(x => x.id === id); 
             if(index > -1) {
                 openModal('prompt', 'Modifier le Poids', `Nouveau poids pour la bobine <b>${stock[index].ref}</b> (en kg) :`, (val) => {
-                    if(val && !isNaN(val)) { logAudit(`Modification poids bobine ${stock[index].ref} à ${val}kg`); stock[index].res = parseFloat(val).toFixed(2); save(); render(); showToast("Poids mis à jour.", "success"); }
+                    if(val && !isNaN(val)) { stock[index].res = parseFloat(val).toFixed(2); logAudit(`Modification poids bobine ${stock[index].ref} à ${val}kg`); render(); showToast("Poids mis à jour.", "success"); }
                 }, 'fa-weight-hanging', 'var(--brand)');
                 setTimeout(() => { document.getElementById('modal-input').value = stock[index].res; }, 50);
             }
         }
         
-        function addM() { const n=document.getElementById('mN').value, w=document.getElementById('mW').value, p=document.getElementById('mP').value; if(n&&w){ models.push({name:n, weight:parseFloat(w), price: parseFloat(p)||0}); logAudit(`Modèle créé: ${n}`); save(); render(); showToast("Modèle créé.", "success"); } else showToast("Nom et Poids requis.", "warning"); }
-        function delM(i) { openModal('confirm', 'Attention', `Supprimer <b>${models[i].name}</b> ?`, (v) => { if(v){ logAudit(`Modèle supprimé: ${models[i].name}`); models.splice(i,1); save(); render(); showToast("Modèle supprimé.", "success"); } }, 'fa-trash', 'var(--danger)'); }
+        function addM() { const n=document.getElementById('mN').value, w=document.getElementById('mW').value, p=document.getElementById('mP').value; if(n&&w){ models.push({name:n, weight:parseFloat(w), price: parseFloat(p)||0}); logAudit(`Modèle créé: ${n}`); render(); showToast("Modèle créé.", "success"); } else showToast("Nom et Poids requis.", "warning"); }
+        function delM(i) { openModal('confirm', 'Attention', `Supprimer <b>${models[i].name}</b> ?`, (v) => { if(v){ const name = models[i].name; models.splice(i,1); logAudit(`Modèle supprimé: ${name}`); render(); showToast("Modèle supprimé.", "success"); } }, 'fa-trash', 'var(--danger)'); }
         function editM(i) {
             const m = models[i];
             const html = `
@@ -1175,13 +1212,105 @@
             `;
             openModal('custom', "Modifier Modèle", html, (val) => {
                 if(val) {
-                    logAudit(`Modèle modifié: ${models[i].name} -> ${document.getElementById('e_mN').value}`);
-                    models[i].name = document.getElementById('e_mN').value;
+                    const newName = document.getElementById('e_mN').value;
+                    const oldName = models[i].name;
+                    models[i].name = newName;
                     models[i].weight = parseFloat(document.getElementById('e_mW').value);
                     models[i].price = parseFloat(document.getElementById('e_mP').value) || 0;
-                    save(); render(); showToast("Modèle mis à jour", "success");
+                    logAudit(`Modèle modifié: ${oldName} -> ${newName}`); render(); showToast("Modèle mis à jour", "success");
                 }
             }, 'fa-layer-group', 'var(--brand)');
+        }
+
+        // --- GESTION COMPTABILITÉ (PAIEMENTS & RETOURS) ---
+        function markAsPaid(id) {
+            openModal('confirm', 'Valider le Paiement', `Confirmer la réception du paiement pour ce BL ?`, (v) => {
+                if(v) {
+                    const item = shipLogs.find(x=>x.id===id);
+                    if(item) { item.status = 'paid'; logAudit(`Paiement validé: BL ${item.bl}`); render(); showToast("Paiement enregistré", "success"); }
+                }
+            }, 'fa-dollar-sign', 'var(--success)');
+        }
+
+        function markAsDelivered(id) {
+            openModal('confirm', 'Valider la Livraison', `Confirmer que les marchandises ont bien été livrées ?`, (v) => {
+                if(v) {
+                    const item = shipLogs.find(x=>x.id===id);
+                    if(item) { item.delivery = 'delivered'; logAudit(`Livraison validée: BL ${item.bl}`); render(); showToast("Statut de livraison mis à jour", "success"); }
+                }
+            }, 'fa-box-open', 'var(--brand)');
+        }
+
+        // ANNULER UN BL : Le remet en stock
+        function returnItem(id) {
+            openModal('confirm', 'Attention', `<b>Annuler ce Bon de Livraison ?</b><br><br>Cela va recréditer le stock (virtuellement) et supprimer cette vente du registre de manière permanente.`, (v) => {
+                if(v) {
+                    const index = shipLogs.findIndex(x=>x.id===id);
+                    if(index > -1) {
+                        const blNum = shipLogs[index].bl || 'Sans Numéro';
+                        shipLogs.splice(index, 1);
+                        logAudit(`Annulation et suppression du BL: ${blNum}`); 
+                        render(); 
+                        showToast("BL annulé et stock restauré", "success"); 
+                    }
+                }
+            }, 'fa-undo', 'var(--warning)');
+        }
+
+        // SUPPRIMER UN BL : Le retire sans toucher au stock (Ex: Erreur de saisie)
+        function deleteShip(id) {
+            openModal('confirm', 'Suppression Définitive', `<b>Supprimer cette trace ?</b><br><br><span style='color:var(--danger)'>⚠️ Cela ne remettra PAS les articles en stock.</span> Utilisez ce bouton uniquement pour corriger une erreur d'historique.`, (v) => {
+                if(v) {
+                    const index = shipLogs.findIndex(x=>x.id===id);
+                    if(index > -1) {
+                        const blNum = shipLogs[index].bl || 'Sans Numéro';
+                        shipLogs.splice(index, 1);
+                        logAudit(`Suppression définitive historique BL: ${blNum}`); 
+                        render(); 
+                        showToast("Trace supprimée de l'historique", "success"); 
+                    }
+                }
+            }, 'fa-trash', 'var(--danger)');
+        }
+
+        // GESTION DES DEPENSES
+        function addExpense() {
+            const desc = document.getElementById('exD').value;
+            const amount = parseFloat(document.getElementById('exA').value);
+            const curr = document.getElementById('exC').value;
+            
+            if(desc && !isNaN(amount) && amount > 0) {
+                let amountDA = amount;
+                if(curr === 'EUR') amountDA = amount * rates.eur;
+                if(curr === 'USD') amountDA = amount * rates.usd;
+                
+                expenses.unshift({
+                    id: Date.now().toString(),
+                    date: new Date().toLocaleDateString('fr-FR', {day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit'}),
+                    desc: desc, amount: amount, currency: curr, amountDA: amountDA
+                });
+                
+                logAudit(`Dépense ajoutée: ${amountDA} DA (${desc})`);
+                render();
+                showToast("Dépense enregistrée", "success");
+            } else {
+                showToast("Veuillez remplir correctement", "warning");
+            }
+        }
+        
+        function delEx(id) {
+            openModal('confirm', 'Attention', `Voulez-vous supprimer cette dépense ?`, (v) => {
+                if(v) {
+                    const index = expenses.findIndex(x => x.id === id);
+                    if(index > -1) {
+                        const desc = expenses[index].desc;
+                        expenses.splice(index, 1);
+                        logAudit(`Dépense supprimée: ${desc}`);
+                        render();
+                        showToast("Dépense supprimée", "success");
+                    }
+                }
+            }, 'fa-trash', 'var(--danger)');
         }
         
         function calc() { 
@@ -1208,7 +1337,7 @@
                     const pcs = Math.floor(w/u); const scrap = Math.max(0, w - (pcs * u)).toFixed(2); const scrapPct = ((scrap / w) * 100).toFixed(1);
                     roll.res = (roll.res-w).toFixed(2);
                     logs.unshift({id: Date.now().toString(), date:new Date().toLocaleDateString('fr-FR', {day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit'}), mod:modN, pcs, emp:operator, scrap, scrapPct});
-                    logAudit(`Production: ${pcs}x ${modN} par ${operator}`); save(); showToast(`Production validée : +${pcs} pièces.`, "success"); setTimeout(() => { reportView='prod'; tab('Historique'); }, 500); 
+                    logAudit(`Production: ${pcs}x ${modN} par ${operator}`); showToast(`Production validée : +${pcs} pièces.`, "success"); setTimeout(() => { reportView='prod'; tab('Historique'); }, 500); 
                 } else { showToast(`Poids max dispo: ${roll.res}kg.`, "error"); }
             }
         }
@@ -1341,7 +1470,7 @@
                 shipLogs.unshift({id: Date.now().toString(), date:todayStr, client:cName, items: [...currentCart], total: totalAmount, emp:operator, status: payStatus, dueDate: dueDate, delivery: 'pending', bl: blNum});
                 logAudit(`Création BL ${blNum} pour ${cName} (${totalAmount} DA)`);
                 currentCart = [];
-                save(); renderCartList(); showToast("Expédition validée et enregistrée en compta !", "success");
+                renderCartList(); showToast("Expédition validée et enregistrée en compta !", "success");
             }
             
             setTimeout(() => { 
@@ -1353,21 +1482,22 @@
         }
 
         // --- MAJ INFOS LEGALES & SECURITE ---
-        function updateComp(key, val) { config.company[key] = val; logAudit(`Configuration entreprise modifiée`); save(); showToast("Info légale enregistrée", "success"); }
+        function updateComp(key, val) { config.company[key] = val; logAudit(`Configuration entreprise modifiée`); showToast("Info légale enregistrée", "success"); }
         function changePin() {
             const p = document.getElementById('newPin').value.trim();
-            if(p.length >= 4) { config.pin = p; logAudit(`Code PIN administrateur modifié`); save(); showToast("Code PIN sécurisé mis à jour.", "success"); document.getElementById('newPin').value = '';}
+            if(p.length >= 4) { config.pin = p; logAudit(`Code PIN administrateur modifié`); showToast("Code PIN sécurisé mis à jour.", "success"); document.getElementById('newPin').value = '';}
             else showToast("Le PIN doit faire au moins 4 caractères.", "error");
         }
-        function addEmp() { const n = document.getElementById('newEmp').value.trim(); if(n && !team.includes(n)) { team.push(n); logAudit(`Opérateur ajouté: ${n}`); save(); render(); showToast("Opérateur ajouté.", "success"); } }
-        function delEmp(i) { openModal('confirm', 'Confirmation', `Supprimer <b>${team[i]}</b> ?`, (v) => { if(v){ logAudit(`Opérateur supprimé: ${team[i]}`); team.splice(i, 1); save(); render(); showToast("Opérateur supprimé.", "success"); } }, 'fa-user-minus', 'var(--danger)'); }
+        function addEmp() { const n = document.getElementById('newEmp').value.trim(); if(n && !team.includes(n)) { team.push(n); logAudit(`Opérateur ajouté: ${n}`); render(); showToast("Opérateur ajouté.", "success"); } }
+        function delEmp(i) { openModal('confirm', 'Confirmation', `Supprimer <b>${team[i]}</b> ?`, (v) => { if(v){ const name = team[i]; team.splice(i, 1); logAudit(`Opérateur supprimé: ${name}`); render(); showToast("Opérateur supprimé.", "success"); } }, 'fa-user-minus', 'var(--danger)'); }
         function editEmp(i) {
             openModal('prompt', 'Modifier Opérateur', `Nouveau nom pour <b>${team[i]}</b> :`, (val) => {
-                if(val && val.trim() !== '') { logAudit(`Opérateur renommé: ${team[i]} -> ${val}`); team[i] = val.trim(); save(); render(); showToast("Opérateur mis à jour.", "success"); }
+                if(val && val.trim() !== '') { const old = team[i]; team[i] = val.trim(); logAudit(`Opérateur renommé: ${old} -> ${val}`); render(); showToast("Opérateur mis à jour.", "success"); }
             }, 'fa-user-edit', 'var(--brand)');
             setTimeout(() => { document.getElementById('modal-input').value = team[i]; }, 50);
         }
-        function delClient(i) { openModal('confirm', 'Confirmation', `Supprimer le client <b>${clients[i].name}</b> ?`, (v) => { if(v){ logAudit(`Client supprimé: ${clients[i].name}`); clients.splice(i, 1); save(); render(); showToast("Client supprimé.", "success"); } }, 'fa-trash', 'var(--danger)'); }
+        function delClient(i) { openModal('confirm', 'Confirmation', `Supprimer le client <b>${clients[i].name}</b> ?`, (v) => { if(v){ const name = clients[i].name; clients.splice(i, 1); logAudit(`Client supprimé: ${name}`); render(); showToast("Client supprimé.", "success"); } }, 'fa-trash', 'var(--danger)'); }
+        
         function openCrmModal(index = -1) {
             const isEdit = index > -1;
             const c = isEdit ? clients[index] : {name:'', address:'', rc:'', nif:'', nis:'', art:'', phone:''};
@@ -1392,7 +1522,7 @@
                         nif: document.getElementById('crm_nif').value || '', nis: document.getElementById('crm_nis').value || '', art: document.getElementById('crm_art').value || ''
                     };
                     if(isEdit) clients[index] = newC; else clients.push(newC);
-                    logAudit(`Client ${isEdit ? 'modifié' : 'créé'} : ${newC.name}`); save(); render(); showToast(isEdit ? "Client mis à jour" : "Nouveau client créé", "success");
+                    logAudit(`Client ${isEdit ? 'modifié' : 'créé'} : ${newC.name}`); render(); showToast(isEdit ? "Client mis à jour" : "Nouveau client créé", "success");
                 }
             }, 'fa-user-tie', 'var(--brand)');
         }
@@ -1436,27 +1566,23 @@
             const now = new Date().toLocaleTimeString('fr-FR');
             const device = navigator.platform;
             if(status === "SUCCESS") {
-                logAudit("⚠️ CONNEXION RÉUSSIE à " + now + " (Appareil: " + device + ")");
+                logAudit(`⚠️ CONNEXION RÉUSSIE à ${now} (Appareil: ${device})`, true); // true = ne pas save encore
             } else {
-                logAudit("❌ TENTATIVE ÉCHOUÉE (Mauvais PIN) à " + now);
+                logAudit(`❌ TENTATIVE ÉCHOUÉE (Mauvais PIN) à ${now}`, true);
             }
         }
         
-    async function sendTelegramAlert(message) {
-    // On sépare les chiffres du reste pour tromper les robots de GitHub
-    const partA = "8263214549"; 
-    const partB = "AAG_Tw7rS1Oez25K2IRqWtH2irFj2SDaOvE";
-    const fullToken = partA + ":" + partB; // On rajoute les ":" au moment de l'envoi
-    
-    const chatId = "6445710090";
-    const url = `https://api.telegram.org/bot${fullToken}/sendMessage?chat_id=${chatId}&text=${encodeURIComponent(message)}`;
-    
-    try {
-        await fetch(url, { mode: 'no-cors' });
-    } catch (e) {
-        console.error("Erreur notification");
-    }
-}
+        async function sendTelegramAlert(message) {
+            const token = "8263214549:AAG_Tw7rS1Oez25K2IRqWtH2irFj2SDaOvE";
+            const chatId = "6445710090";
+            const url = "https://api.telegram.org/bot" + token + "/sendMessage?chat_id=" + chatId + "&text=" + encodeURIComponent(message);
+            
+            try {
+                await fetch(url, { mode: 'no-cors' }); 
+            } catch (error) {
+                console.error("Erreur Telegram");
+            }
+        }
     </script>
 </body>
 </html>
