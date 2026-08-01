@@ -296,6 +296,7 @@
         <div class="nav-item" onclick="tab('Modeles', this)"><i class="fas fa-layer-group"></i><span>Catalogue</span></div>
         <div class="nav-item" onclick="tab('Livraison', this)"><i class="fas fa-truck-fast"></i><span>Ventes</span></div>
         <div class="nav-item" onclick="tab('Historique', this)"><i class="fas fa-file-invoice"></i><span>Compta</span></div>
+        <div class="nav-item" onclick="tab('Paie', this)"><i class="fas fa-money-bill-wave"></i><span>Paie</span></div>
         <div class="nav-item" onclick="tab('Parametres', this)" style="margin-top:auto; margin-bottom: 10px;"><i class="fas fa-sliders-h"></i><span>Réglages</span></div>
     </nav>
 
@@ -354,6 +355,12 @@
         window.calcExpr = window.calcExpr || "";
         let enteredPin = ""; 
 
+        // --- SYSTEME DE PAIE / SALAIRES ---
+        let employees = [], salaryEntries = [];
+        function isoNow(){ const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
+        function ymNow(){ const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`; }
+        let paieView = 'pointage', paieMonth = ymNow(), pieceEmpId = null, paieDate = isoNow(), paieEmpDetail = null;
+
         // --- CHARGEMENT DEPUIS LE CLOUD ---
         async function loadCloudData() {
             try {
@@ -364,6 +371,7 @@
                     shipLogs = data.shipLogs || []; expenses = data.expenses || []; audit = data.audit || [];
                     team = data.team || ["Opérateur 1"]; clients = data.clients || [{name: "Client Comptoir", address: "", rc: "", nif: "", nis: "", art: "", phone: ""}];
                     rates = data.rates || {eur: 240, usd: 220}; config = data.config || config;
+                    employees = data.employees || []; salaryEntries = data.salaryEntries || [];
                 } else {
                     save(); 
                 }
@@ -373,6 +381,7 @@
                 if(typeof config.sound === 'undefined') config.sound = true;
                 if(typeof config.navFixed === 'undefined') config.navFixed = false;
                 if(!config.kpi) config.kpi = { rolls: true, ship: true, rev: true, debt: true, loss: true };
+                paieMigrate();
                 
                 shipLogs.forEach(sl => { 
                     if(!sl.id) sl.id = Date.now() + Math.random(); 
@@ -444,7 +453,7 @@
         // --- SAUVEGARDE CLOUD CORRIGEE ---
         function save() {
             dbRef.set({
-                stock, logs, models, shipLogs, expenses, audit, team, clients, rates, config
+                stock, logs, models, shipLogs, expenses, audit, team, clients, rates, config, employees, salaryEntries
             }).then(() => {
                 checkAlerts(); 
             }).catch((error) => {
@@ -652,6 +661,7 @@
 
         function tab(t, btn) {
             currentTab = t;
+            paieEmpDetail = null;
             if(btn) { document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active')); btn.classList.add('active'); }
             const view = document.getElementById('view');
             view.classList.remove('fade-in-view'); void view.offsetWidth; view.classList.add('fade-in-view');
@@ -679,6 +689,8 @@
             const area = document.getElementById('view');
             const q = document.getElementById('gSearch') ? document.getElementById('gSearch').value.toLowerCase() : "";
             area.innerHTML = "";
+
+            if(currentTab === 'Paie') { renderPaie(area); return; }
 
             if(currentTab === 'Dashboard') {
                 const filteredShips = shipLogs.filter(sl => checkInPeriod(sl.date, dashPeriod));
@@ -1092,6 +1104,530 @@
                 </div>`;
             }
         }
+
+        // ==========================================
+        // --- SYSTEME DE PAIE / SALAIRES ---
+        // ==========================================
+        function paieMigrate() {
+            if(!Array.isArray(employees)) employees = [];
+            if(!Array.isArray(salaryEntries)) salaryEntries = [];
+            employees.forEach(e => {
+                if(!e.id) e.id = 'emp_' + Date.now() + Math.random().toString(36).slice(2,6);
+                if(!e.type) e.type = 'daily';
+                if(typeof e.dailyRate !== 'number') e.dailyRate = parseFloat(e.dailyRate) || 1500;
+                if(typeof e.active === 'undefined') e.active = true;
+                if(e.type === 'piece') {
+                    if(typeof e.pieceTarget !== 'number' || e.pieceTarget <= 0) e.pieceTarget = 72;
+                }
+            });
+        }
+
+        // --- Helpers ---
+        function fmtDA(n){ return (Math.round(n)||0).toLocaleString('fr-FR'); }
+        function isoToFr(iso){ if(!iso) return ''; const p = iso.split('-'); return `${p[2]}/${p[1]}/${p[0]}`; }
+        function daysInMonth(ym){ const [y,m]=ym.split('-').map(Number); return new Date(y,m,0).getDate(); }
+        function monthLabel(ym){ const [y,m]=ym.split('-').map(Number); return new Date(y,m-1,1).toLocaleDateString('fr-FR',{month:'long', year:'numeric'}); }
+        function empById(id){ return employees.find(e=>e.id===id); }
+        function getEntry(iso, empId){ return salaryEntries.find(s=>s.date===iso && s.empId===empId && !s.piece); }
+        function newId(pfx){ return pfx + '_' + Date.now() + Math.random().toString(36).slice(2,6); }
+
+        function changePaieMonth(delta){
+            let [y,m] = paieMonth.split('-').map(Number);
+            let idx = (m - 1) + delta;            // mois 0-indexe + delta
+            y = y + Math.floor(idx / 12);
+            m = ((idx % 12) + 12) % 12;           // 0..11, gere le passage d'annee
+            paieMonth = `${y}-${String(m + 1).padStart(2,'0')}`;
+            render();
+        }
+        function setPaieView(v){ paieEmpDetail = null; paieView = v; render(); }
+
+        // --- Modale dediee Paie ---
+        function ensurePaieModal(){
+            if(document.getElementById('paie-modal-overlay')) return;
+            const ov = document.createElement('div');
+            ov.id = 'paie-modal-overlay';
+            ov.style.cssText = 'position:fixed; inset:0; background:rgba(0,0,0,0.7); backdrop-filter:blur(4px); z-index:10001; display:none; align-items:center; justify-content:center; padding:20px;';
+            ov.innerHTML = `<div class="custom-modal" style="max-width:440px; text-align:left;">
+                <div style="display:flex; align-items:center; gap:12px; margin-bottom:18px;">
+                  <i id="paie-modal-icon" class="fas fa-user-tie" style="font-size:1.8rem; color:var(--brand);"></i>
+                  <h3 id="paie-modal-title" style="margin:0; font-size:1.2rem; color:var(--text);">Titre</h3>
+                </div>
+                <div id="paie-modal-body"></div>
+                <div class="modal-actions" id="paie-modal-actions" style="margin-top:22px;">
+                  <button class="btn-action modal-btn-cancel" id="paie-modal-cancel" style="flex:1;">Annuler</button>
+                  <button class="btn-action" id="paie-modal-save" style="flex:1;">Enregistrer</button>
+                </div>
+              </div>`;
+            document.body.appendChild(ov);
+            ov.addEventListener('click', e=>{ if(e.target===ov) closePaieModal(); });
+            document.getElementById('paie-modal-cancel').addEventListener('click', closePaieModal);
+        }
+        function openPaieModal(title, bodyHtml, icon, color, onSave){
+            ensurePaieModal();
+            document.getElementById('paie-modal-title').innerText = title;
+            document.getElementById('paie-modal-icon').className = 'fas ' + icon;
+            document.getElementById('paie-modal-icon').style.color = color || 'var(--brand)';
+            document.getElementById('paie-modal-body').innerHTML = bodyHtml;
+            const actions = document.getElementById('paie-modal-actions');
+            if(onSave){
+                actions.style.display = 'flex';
+                const saveBtn = document.getElementById('paie-modal-save');
+                const fresh = saveBtn.cloneNode(true);
+                saveBtn.parentNode.replaceChild(fresh, saveBtn);
+                fresh.addEventListener('click', ()=>{ const ok = onSave(); if(ok!==false) closePaieModal(); });
+            } else {
+                actions.style.display = 'none';
+            }
+            document.getElementById('paie-modal-overlay').style.display = 'flex';
+        }
+        function closePaieModal(){ const ov=document.getElementById('paie-modal-overlay'); if(ov) ov.style.display='none'; }
+
+        // --- Gestion des employes ---
+        function openEmpModal(id){
+            const e = id ? empById(id) : null;
+            const title = e ? 'Modifier l\'employe' : 'Nouvel employe';
+            const html = `
+              <label>Nom</label>
+              <input id="pe_name" value="${e?e.name:''}" placeholder="Ex: Sid Ali" style="margin-bottom:15px;">
+              <label>Type de remuneration</label>
+              <select id="pe_type" onchange="document.getElementById('pe_piece_box').style.display=this.value==='piece'?'block':'none'; document.getElementById('pe_rate_lbl').innerText=this.value==='piece'?'Valeur d\\'une journee (DA)':'Salaire par jour (DA)';" style="margin-bottom:15px;">
+                <option value="daily" ${(!e||e.type==='daily')?'selected':''}>Au jour (salaire journalier)</option>
+                <option value="piece" ${e&&e.type==='piece'?'selected':''}>A la piece (couturiere)</option>
+              </select>
+              <label id="pe_rate_lbl">${e&&e.type==='piece'?'Valeur d\'une journee (DA)':'Salaire par jour (DA)'}</label>
+              <input id="pe_rate" type="number" value="${e?e.dailyRate:1500}" placeholder="1500" style="margin-bottom:15px;">
+              <div id="pe_piece_box" style="display:${e&&e.type==='piece'?'block':'none'};">
+                <label>Objectif : nombre de pieces = 1 journee</label>
+                <input id="pe_target" type="number" value="${e&&e.pieceTarget?e.pieceTarget:72}" placeholder="72" style="margin-bottom:5px;">
+                <p style="font-size:0.8rem; color:var(--muted); margin:0;">Chaque fois que ce nombre est atteint, une journee est comptabilisee.</p>
+              </div>`;
+            openPaieModal(title, html, 'fa-user-tie', 'var(--brand)', () => {
+                const name = document.getElementById('pe_name').value.trim();
+                if(!name){ showToast('Nom requis','warning'); return false; }
+                const type = document.getElementById('pe_type').value;
+                const rate = parseFloat(document.getElementById('pe_rate').value)||0;
+                const target = parseFloat(document.getElementById('pe_target').value)||72;
+                if(e){
+                    e.name=name; e.type=type; e.dailyRate=rate;
+                    if(type==='piece') e.pieceTarget=target;
+                    logAudit(`Employe modifie: ${name}`);
+                } else {
+                    const ne = {id:newId('emp'), name, type, dailyRate:rate, active:true};
+                    if(type==='piece') ne.pieceTarget=target;
+                    employees.push(ne);
+                    logAudit(`Employe ajoute: ${name}`);
+                }
+                render(); showToast('Employe enregistre','success');
+                return true;
+            });
+        }
+
+        function delEmployee(id){
+            const e = empById(id); if(!e) return;
+            openModal('confirm','Attention',`Supprimer <b>${e.name}</b> et tout son pointage ? Cette action est irreversible.`,(v)=>{
+                if(v){
+                    employees = employees.filter(x=>x.id!==id);
+                    salaryEntries = salaryEntries.filter(s=>s.empId!==id);
+                    logAudit(`Employe supprime: ${e.name}`);
+                    render(); showToast('Employe supprime','success');
+                }
+            },'fa-user-minus','var(--danger)');
+        }
+
+        function toggleEmpActive(id){
+            const e = empById(id); if(!e) return;
+            e.active = !e.active; save(); render();
+            showToast(e.active ? `${e.name} reactive` : `${e.name} desactive`, 'success');
+        }
+
+        // --- Pointage : ecriture d'une journee ---
+        function setDay(iso, empId, status, amount){
+            let en = getEntry(iso, empId);
+            const e = empById(empId);
+            let amt = (typeof amount === 'number') ? amount : (en ? en.amount : (e?e.dailyRate:0));
+            if(status === 'absent') amt = 0;
+            if(status === 'clear'){
+                if(en) salaryEntries = salaryEntries.filter(s=>s!==en);
+            } else if(en){
+                en.status = status; en.amount = amt;
+            } else {
+                salaryEntries.push({id:newId('sal'), date:iso, empId, amount:amt, status});
+            }
+            save();
+        }
+        function pointer(iso, empId, status){
+            const inp = document.getElementById('pt_amt_'+empId);
+            const amt = inp ? (parseFloat(inp.value)||0) : undefined;
+            setDay(iso, empId, status, status==='absent'?0:amt);
+            logAudit(`Pointage ${status} : ${empById(empId)?.name} (${isoToFr(iso)})`);
+            render();
+        }
+
+        // --- Editeur de cellule (vue Tableau) ---
+        function openCellEditor(iso, empId){
+            const e = empById(empId); if(!e) return;
+            const en = getEntry(iso, empId);
+            const amt = en ? en.amount : e.dailyRate;
+            const html = `
+              <p style="color:var(--muted); margin:0 0 15px;"><b style="color:var(--text);">${e.name}</b> &mdash; ${isoToFr(iso)}</p>
+              <label>Montant du jour (DA)</label>
+              <input id="ce_amt" type="number" value="${amt}" style="margin-bottom:18px;">
+              <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+                <button class="btn-action" style="background:var(--warning);" onclick="cellSet('${iso}','${empId}','present')"><i class="fas fa-user-clock"></i> Present (du)</button>
+                <button class="btn-action" style="background:var(--success);" onclick="cellSet('${iso}','${empId}','paid')"><i class="fas fa-check"></i> Paye</button>
+                <button class="btn-action" style="background:var(--danger);" onclick="cellSet('${iso}','${empId}','absent')"><i class="fas fa-xmark"></i> Absent</button>
+                <button class="btn-action" style="background:var(--panel); border:1px solid var(--border); color:var(--text);" onclick="cellSet('${iso}','${empId}','clear')"><i class="fas fa-eraser"></i> Effacer</button>
+              </div>`;
+            openPaieModal('Pointage', html, 'fa-calendar-day', 'var(--brand)', null);
+        }
+        function cellSet(iso, empId, status){
+            const inp = document.getElementById('ce_amt');
+            const amt = inp ? (parseFloat(inp.value)||0) : undefined;
+            setDay(iso, empId, status, status==='absent'?0:amt);
+            closePaieModal();
+            render();
+        }
+
+        // --- Totaux (comme le tableau Excel) ---
+        function payrollTotals(ym){
+            const per = {}; let gPaid=0, gUnpaid=0;
+            employees.forEach(e=>{ per[e.id]={paid:0, unpaid:0, absent:0, present:0}; });
+            salaryEntries.filter(s=>s.date && s.date.slice(0,7)===ym).forEach(s=>{
+                if(!per[s.empId]) return;
+                if(s.piece){ if(s.kind==='pay') per[s.empId].paid += (s.amount||0); return; }
+                if(s.status==='paid'){ per[s.empId].paid += (s.amount||0); }
+                else if(s.status==='present'){ per[s.empId].unpaid += (s.amount||0); per[s.empId].present++; }
+                else if(s.status==='absent'){ per[s.empId].absent++; }
+            });
+            employees.forEach(e=>{ gPaid+=per[e.id].paid; gUnpaid+=per[e.id].unpaid; });
+            return {per, gPaid, gUnpaid, gTotal:gPaid+gUnpaid};
+        }
+
+        // Payer d'un coup tout le du (present) d'un employe sur le mois
+        function payAllMonth(empId){
+            const e = empById(empId); if(!e) return;
+            const due = salaryEntries.filter(s=>s.empId===empId && !s.piece && s.status==='present' && s.date.slice(0,7)===paieMonth);
+            if(due.length===0){ showToast('Rien a payer ce mois-ci','warning'); return; }
+            const tot = due.reduce((a,b)=>a+b.amount,0);
+            openModal('confirm','Payer le solde',`Marquer comme <b>paye</b> tout le du de <b>${e.name}</b> pour ${monthLabel(paieMonth)} ?<br><br>Total : <b>${fmtDA(tot)} DA</b> sur ${due.length} jour(s).`,(v)=>{
+                if(v){
+                    due.forEach(s=>s.status='paid');
+                    save(); logAudit(`Solde paye : ${e.name} (${fmtDA(tot)} DA)`);
+                    render(); showToast('Solde marque comme paye','success');
+                }
+            },'fa-money-bill-wave','var(--success)');
+        }
+
+        // Comptabiliser la paie payee du mois dans les depenses
+        function bookPayrollExpense(){
+            const {gPaid} = payrollTotals(paieMonth);
+            if(gPaid<=0){ showToast('Aucune paie payee ce mois-ci','warning'); return; }
+            openModal('confirm','Comptabiliser en depense',`Enregistrer <b>${fmtDA(gPaid)} DA</b> (paie payee de ${monthLabel(paieMonth)}) dans le journal des depenses ?`,(v)=>{
+                if(v){
+                    expenses.unshift({ id:Date.now().toString(), date:new Date().toLocaleDateString('fr-FR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}),
+                        desc:`Salaires payes - ${monthLabel(paieMonth)}`, amount:gPaid, currency:'DA', amountDA:gPaid });
+                    logAudit(`Paie comptabilisee en depense: ${fmtDA(gPaid)} DA`);
+                    render(); showToast('Paie ajoutee aux depenses','success');
+                }
+            },'fa-file-invoice-dollar','var(--brand)');
+        }
+
+        // --- Travail a la piece ---
+        function pieceStats(empId){
+            const e = empById(empId); const t = e.pieceTarget || 1;
+            const produced = salaryEntries.filter(s=>s.empId===empId && s.piece && s.kind==='prod').reduce((a,b)=>a+(b.pieces||0),0);
+            const jPaid = salaryEntries.filter(s=>s.empId===empId && s.piece && s.kind==='pay').reduce((a,b)=>a+(b.journees||0),0);
+            const pending = produced - jPaid*t;
+            const jAvail = Math.floor(pending/t);
+            const remainder = pending - jAvail*t;
+            return {produced, jPaid, pending, jAvail, remainder, target:t, rate:e.dailyRate};
+        }
+        function addPiece(empId){
+            const dInp = document.getElementById('pc_date'), pInp = document.getElementById('pc_qty');
+            const iso = dInp && dInp.value ? dInp.value : isoNow();
+            const q = parseFloat(pInp.value)||0;
+            if(q<=0){ showToast('Quantite invalide','warning'); return; }
+            salaryEntries.push({id:newId('sal'), date:iso, empId, piece:true, kind:'prod', pieces:q});
+            logAudit(`Production pieces: ${empById(empId).name} +${q}`);
+            render(); showToast('Production ajoutee','success');
+        }
+        function delPiece(id){
+            salaryEntries = salaryEntries.filter(s=>s.id!==id);
+            save(); render(); showToast('Entree supprimee','success');
+        }
+        function payPiece(empId){
+            const e = empById(empId); const st = pieceStats(empId);
+            if(st.jAvail<=0){ showToast('Objectif non atteint','warning'); return; }
+            const amount = st.jAvail * e.dailyRate;
+            openModal('confirm','Payer a la piece',`Payer <b>${st.jAvail} journee(s)</b> = <b>${fmtDA(amount)} DA</b> a ${e.name} ?<br><br>Reste apres paiement : ${st.remainder} piece(s).`,(v)=>{
+                if(v){
+                    salaryEntries.push({id:newId('sal'), date:isoNow(), empId, piece:true, kind:'pay', journees:st.jAvail, amount, status:'paid'});
+                    logAudit(`Paie a la piece: ${e.name} ${st.jAvail}j (${fmtDA(amount)} DA)`);
+                    render(); showToast('Paiement enregistre','success');
+                }
+            },'fa-hand-holding-dollar','var(--success)');
+        }
+
+        // ==========================================
+        // --- RENDU DE LA VUE PAIE ---
+        // ==========================================
+        function renderPaie(area){
+            if(paieEmpDetail){ area.innerHTML = renderPaieEmployeDetail(paieEmpDetail); return; }
+            const tabs = [
+                {k:'pointage', label:'Pointage', icon:'fa-clipboard-check'},
+                {k:'tableau', label:'Tableau', icon:'fa-table-cells'},
+                {k:'piece', label:'A la piece', icon:'fa-scissors'},
+                {k:'employes', label:'Employes', icon:'fa-users'}
+            ];
+            const switcher = `<div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:20px;">
+                ${tabs.map(t=>`<button class="btn-action" style="width:auto; padding:10px 16px; ${paieView===t.k?'':'background:var(--panel); border:1px solid var(--border); color:var(--muted);'}" onclick="setPaieView('${t.k}')"><i class="fas ${t.icon}"></i> ${t.label}</button>`).join('')}
+            </div>`;
+
+            let body = '';
+            if(paieView==='pointage') body = renderPaiePointage();
+            else if(paieView==='tableau') body = renderPaieTableau();
+            else if(paieView==='piece') body = renderPaiePiece();
+            else if(paieView==='employes') body = renderPaieEmployes();
+
+            area.innerHTML = `
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px; flex-wrap:wrap; gap:10px;">
+                    <h3 style="margin:0; font-size:1.3rem; color:var(--text);"><i class="fas fa-money-bill-wave" style="color:var(--brand); margin-right:8px;"></i> Gestion de la Paie</h3>
+                    <button class="btn-action" style="width:auto;" onclick="openEmpModal()"><i class="fas fa-user-plus"></i> Ajouter un employe</button>
+                </div>
+                ${switcher}
+                ${body}`;
+        }
+
+        function renderPaiePointage(){
+            const daily = employees.filter(e=>e.type==='daily' && e.active);
+            if(daily.length===0) return `<div class="card" style="text-align:center; color:var(--muted);">Aucun employe au jour. Ajoutez-en un via "Ajouter un employe".</div>`;
+            const rows = daily.map(e=>{
+                const en = getEntry(paieDate, e.id);
+                const st = en ? en.status : 'none';
+                const amt = en ? en.amount : e.dailyRate;
+                const btn = (s, label, icon, col) => `<button class="btn-action" style="width:auto; padding:10px 14px; ${st===s?`background:${col};`:'background:var(--panel); border:1px solid var(--border); color:var(--muted);'}" onclick="pointer('${paieDate}','${e.id}','${s}')"><i class="fas ${icon}"></i> ${label}</button>`;
+                return `<div class="card" style="margin-bottom:12px; display:flex; align-items:center; gap:15px; flex-wrap:wrap;">
+                    <div style="flex:1; min-width:120px;"><b style="font-size:1.05rem;">${e.name}</b><div style="font-size:0.8rem; color:var(--muted);">Tarif : ${fmtDA(e.dailyRate)} DA/j</div></div>
+                    <div style="width:120px;"><input type="number" id="pt_amt_${e.id}" value="${amt}" ${st==='absent'?'disabled':''} style="margin:0;"></div>
+                    <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                        ${btn('present','Present','fa-user-clock','var(--warning)')}
+                        ${btn('paid','Paye','fa-check','var(--success)')}
+                        ${btn('absent','Absent','fa-xmark','var(--danger)')}
+                    </div>
+                </div>`;
+            }).join('');
+            return `
+                <div class="card" style="display:flex; align-items:center; gap:15px; flex-wrap:wrap;">
+                    <div style="flex:1; min-width:180px;"><label style="margin-bottom:4px;">Date du pointage</label><input type="date" value="${paieDate}" onchange="paieDate=this.value; render();" style="margin:0;"></div>
+                    <div style="color:var(--muted); font-size:0.9rem;"><i class="fas fa-circle" style="color:var(--warning);"></i> Present (du) &nbsp; <i class="fas fa-circle" style="color:var(--success);"></i> Paye &nbsp; <i class="fas fa-circle" style="color:var(--danger);"></i> Absent</div>
+                </div>
+                ${rows}`;
+        }
+
+        function renderPaieTableau(){
+            const daily = employees.filter(e=>e.type==='daily');
+            const nd = daysInMonth(paieMonth);
+            const {per, gPaid, gUnpaid, gTotal} = payrollTotals(paieMonth);
+            const header = `<tr><th style="position:sticky; left:0; background:var(--panel); z-index:2;">Date</th>${daily.map(e=>`<th style="text-align:center;">${e.name}</th>`).join('')}</tr>`;
+            let rowsHtml = '';
+            for(let d=1; d<=nd; d++){
+                const iso = `${paieMonth}-${String(d).padStart(2,'0')}`;
+                const [wy,wm,wd] = iso.split('-').map(Number); const dow = new Date(wy, wm-1, wd).getDay();
+                const wk = (dow===5) ? 'color:var(--danger);' : '';
+                const cells = daily.map(e=>{
+                    const en = getEntry(iso, e.id);
+                    let disp='&ndash;', style='color:rgba(148,163,184,0.4);';
+                    if(en){
+                        if(en.status==='paid'){ disp=fmtDA(en.amount); style='background:var(--success); color:#fff; font-weight:700; border-radius:6px;'; }
+                        else if(en.status==='present'){ disp=fmtDA(en.amount); style='color:var(--warning); font-weight:700;'; }
+                        else if(en.status==='absent'){ disp='x'; style='color:var(--muted);'; }
+                    }
+                    return `<td style="text-align:center; cursor:pointer; padding:8px; ${style}" onclick="openCellEditor('${iso}','${e.id}')">${disp}</td>`;
+                }).join('');
+                rowsHtml += `<tr><td style="position:sticky; left:0; background:var(--panel); font-weight:600; white-space:nowrap; ${wk}">${String(d).padStart(2,'0')}/${paieMonth.slice(5,7)}</td>${cells}</tr>`;
+            }
+            const totPaid = `<tr style="border-top:2px solid var(--border);"><td style="position:sticky; left:0; background:var(--panel); font-weight:800; color:var(--success);">Total Paye</td>${daily.map(e=>`<td style="text-align:center; color:var(--success); font-weight:700;">${fmtDA(per[e.id].paid)}</td>`).join('')}</tr>`;
+            const totDue = `<tr><td style="position:sticky; left:0; background:var(--panel); font-weight:800; color:var(--warning);">Total Non Paye</td>${daily.map(e=>`<td style="text-align:center; color:var(--warning); font-weight:700;">${fmtDA(per[e.id].unpaid)}</td>`).join('')}</tr>`;
+            const totAll = `<tr><td style="position:sticky; left:0; background:var(--panel); font-weight:800;">Total</td>${daily.map(e=>`<td style="text-align:center; font-weight:800;">${fmtDA(per[e.id].paid + per[e.id].unpaid)}</td>`).join('')}</tr>`;
+            const payRow = `<tr><td style="position:sticky; left:0; background:var(--panel);"></td>${daily.map(e=>`<td style="text-align:center;">${per[e.id].unpaid>0?`<button class="btn-action" style="width:auto; padding:6px 10px; font-size:0.7rem; background:var(--success);" onclick="payAllMonth('${e.id}')">Payer</button>`:''}</td>`).join('')}</tr>`;
+
+            if(daily.length===0) return `<div class="card" style="text-align:center; color:var(--muted);">Aucun employe au jour a afficher.</div>`;
+            return `
+                <div class="card" style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:15px;">
+                    <div style="display:flex; align-items:center; gap:12px;">
+                        <button class="btn-action" style="width:auto; padding:10px 14px;" onclick="changePaieMonth(-1)"><i class="fas fa-chevron-left"></i></button>
+                        <b style="font-size:1.1rem; text-transform:capitalize; min-width:150px; text-align:center;">${monthLabel(paieMonth)}</b>
+                        <button class="btn-action" style="width:auto; padding:10px 14px;" onclick="changePaieMonth(1)"><i class="fas fa-chevron-right"></i></button>
+                    </div>
+                    <button class="btn-action" style="width:auto;" onclick="bookPayrollExpense()"><i class="fas fa-file-invoice-dollar"></i> Comptabiliser la paie en depense</button>
+                </div>
+                <div class="dash-grid" style="grid-template-columns:repeat(auto-fit, minmax(160px,1fr));">
+                    <div class="kpi-card" style="cursor:default;"><div class="kpi-icon" style="color:var(--success); background:rgba(16,185,129,0.1);"><i class="fas fa-check-double"></i></div><div class="kpi-content"><h4>Total Paye</h4><div class="val">${fmtDA(gPaid)} DA</div></div></div>
+                    <div class="kpi-card" style="cursor:default;"><div class="kpi-icon" style="color:var(--warning); background:rgba(245,158,11,0.1);"><i class="fas fa-hand-holding-dollar"></i></div><div class="kpi-content"><h4>Reste a payer</h4><div class="val">${fmtDA(gUnpaid)} DA</div></div></div>
+                    <div class="kpi-card" style="cursor:default;"><div class="kpi-icon"><i class="fas fa-coins"></i></div><div class="kpi-content"><h4>Total du mois</h4><div class="val">${fmtDA(gTotal)} DA</div></div></div>
+                </div>
+                <div class="card">
+                    <div class="table-responsive" style="max-height:60vh; overflow:auto;">
+                        <table><thead>${header}</thead><tbody>${rowsHtml}${totPaid}${totDue}${totAll}${payRow}</tbody></table>
+                    </div>
+                    <p style="font-size:0.8rem; color:var(--muted); margin:12px 0 0;">Astuce : cliquez sur une case pour la modifier (present, paye, absent). Les vendredis sont en rouge.</p>
+                </div>`;
+        }
+
+        function renderPaiePiece(){
+            const pieceEmps = employees.filter(e=>e.type==='piece');
+            if(pieceEmps.length===0) return `<div class="card" style="text-align:center; color:var(--muted);">Aucune couturiere a la piece. Ajoutez un employe de type "A la piece" (ex : Sarah, Razika).</div>`;
+            if(!pieceEmpId || !empById(pieceEmpId) || empById(pieceEmpId).type!=='piece') pieceEmpId = pieceEmps[0].id;
+            const e = empById(pieceEmpId);
+            const st = pieceStats(pieceEmpId);
+            const logs = salaryEntries.filter(s=>s.empId===pieceEmpId && s.piece).sort((a,b)=> (b.date||'').localeCompare(a.date||''));
+            const logRows = logs.map(s=>{
+                if(s.kind==='prod') return `<tr><td>${isoToFr(s.date)}</td><td style="color:var(--brand); font-weight:600;">+${s.pieces} pieces</td><td style="text-align:right;"><i class="fas fa-trash" style="color:var(--danger); cursor:pointer;" onclick="delPiece('${s.id}')"></i></td></tr>`;
+                return `<tr><td>${isoToFr(s.date)}</td><td style="color:var(--success); font-weight:600;">Paye : ${s.journees} journee(s) &middot; ${fmtDA(s.amount)} DA</td><td style="text-align:right;"><i class="fas fa-trash" style="color:var(--danger); cursor:pointer;" onclick="delPiece('${s.id}')"></i></td></tr>`;
+            }).join('') || `<tr><td colspan="3" style="text-align:center; color:var(--muted);">Aucune entree.</td></tr>`;
+
+            return `
+                <div class="card">
+                    <label>Couturiere</label>
+                    <select onchange="pieceEmpId=this.value; render();" style="margin-bottom:0;">
+                        ${pieceEmps.map(p=>`<option value="${p.id}" ${p.id===pieceEmpId?'selected':''}>${p.name}</option>`).join('')}
+                    </select>
+                </div>
+                <div class="dash-grid" style="grid-template-columns:repeat(auto-fit, minmax(150px,1fr));">
+                    <div class="kpi-card" style="cursor:default;"><div class="kpi-icon"><i class="fas fa-bullseye"></i></div><div class="kpi-content"><h4>Objectif</h4><div class="val">${st.target} p. = 1j</div></div></div>
+                    <div class="kpi-card" style="cursor:default;"><div class="kpi-icon" style="color:var(--brand);"><i class="fas fa-layer-group"></i></div><div class="kpi-content"><h4>Pieces en attente</h4><div class="val">${st.pending}</div></div></div>
+                    <div class="kpi-card" style="cursor:default;"><div class="kpi-icon" style="color:var(--warning); background:rgba(245,158,11,0.1);"><i class="fas fa-calendar-day"></i></div><div class="kpi-content"><h4>Journees a payer</h4><div class="val">${st.jAvail}</div></div></div>
+                    <div class="kpi-card" style="cursor:default;"><div class="kpi-icon" style="color:var(--success); background:rgba(16,185,129,0.1);"><i class="fas fa-money-bill"></i></div><div class="kpi-content"><h4>Montant du</h4><div class="val">${fmtDA(st.jAvail*st.rate)} DA</div></div></div>
+                </div>
+                <div class="grid-2">
+                    <div class="card" style="margin-bottom:0;">
+                        <h3><i class="fas fa-plus-circle" style="color:var(--brand); margin-right:8px;"></i>Ajouter une production</h3>
+                        <label>Date</label>
+                        <input type="date" id="pc_date" value="${isoNow()}" style="margin-bottom:15px;">
+                        <label>Nombre de pieces realisees</label>
+                        <input type="number" id="pc_qty" placeholder="Ex : 150" style="margin-bottom:15px;">
+                        <button class="btn-action" onclick="addPiece('${pieceEmpId}')"><i class="fas fa-check"></i> Enregistrer la production</button>
+                    </div>
+                    <div class="card" style="margin-bottom:0;">
+                        <h3><i class="fas fa-hand-holding-dollar" style="color:var(--success); margin-right:8px;"></i>Payer les journees</h3>
+                        <p style="color:var(--muted); font-size:0.9rem;">${e.name} a produit <b style="color:var(--text);">${st.pending}</b> pieces non payees, soit <b style="color:var(--text);">${st.jAvail} journee(s)</b> a ${fmtDA(st.rate)} DA. Reste : ${st.remainder} pieces vers la prochaine journee.</p>
+                        <button class="btn-action" style="background:var(--success);" ${st.jAvail<=0?'disabled style="opacity:0.5;"':''} onclick="payPiece('${pieceEmpId}')"><i class="fas fa-money-bill-wave"></i> Payer ${st.jAvail} journee(s) = ${fmtDA(st.jAvail*st.rate)} DA</button>
+                    </div>
+                </div>
+                <div class="card">
+                    <h3><i class="fas fa-clock-rotate-left" style="color:var(--brand); margin-right:8px;"></i>Historique &mdash; ${e.name}</h3>
+                    <div class="table-responsive" style="max-height:300px;">
+                        <table><thead><tr><th>Date</th><th>Mouvement</th><th></th></tr></thead><tbody>${logRows}</tbody></table>
+                    </div>
+                </div>`;
+        }
+
+        function renderPaieEmployes(){
+            if(employees.length===0) return `<div class="card" style="text-align:center; color:var(--muted);">Aucun employe. Cliquez sur "Ajouter un employe".</div>`;
+            const rows = employees.map(e=>`
+                <tr style="${e.active?'':'opacity:0.5;'}">
+                    <td style="cursor:pointer;" onclick="openEmpDetail('${e.id}')"><b style="color:var(--brand);">${e.name}</b> <i class="fas fa-clock-rotate-left" style="font-size:0.8rem; color:var(--muted); margin-left:6px;"></i></td>
+                    <td>${e.type==='piece'?'<span class="badge-status" style="background:rgba(59,130,246,0.15); color:var(--brand);">A la piece</span>':'<span class="badge-status" style="background:rgba(148,163,184,0.15); color:var(--muted);">Au jour</span>'}</td>
+                    <td>${fmtDA(e.dailyRate)} DA${e.type==='piece'?` / ${e.pieceTarget}p`:'/j'}</td>
+                    <td style="text-align:right; white-space:nowrap;">
+                        <i class="fas fa-clock-rotate-left" title="Voir l'historique" style="color:var(--brand); cursor:pointer; margin-right:12px;" onclick="openEmpDetail('${e.id}')"></i>
+                        <i class="fas ${e.active?'fa-toggle-on':'fa-toggle-off'}" title="Activer/Desactiver" style="color:${e.active?'var(--success)':'var(--muted)'}; cursor:pointer; margin-right:12px; font-size:1.1rem;" onclick="toggleEmpActive('${e.id}')"></i>
+                        <i class="fas fa-edit" style="color:var(--brand); cursor:pointer; margin-right:12px;" onclick="openEmpModal('${e.id}')"></i>
+                        <i class="fas fa-trash" style="color:var(--danger); cursor:pointer;" onclick="delEmployee('${e.id}')"></i>
+                    </td>
+                </tr>`).join('');
+            return `<div class="card">
+                <h3><i class="fas fa-users" style="color:var(--brand); margin-right:8px;"></i>Liste des employes</h3>
+                <p style="font-size:0.8rem; color:var(--muted); margin:-10px 0 15px;">Touchez le nom d'un employe pour voir tout son historique.</p>
+                <div class="table-responsive">
+                    <table><thead><tr><th>Nom</th><th>Type</th><th>Tarif</th><th></th></tr></thead><tbody>${rows}</tbody></table>
+                </div>
+            </div>`;
+        }
+
+        // --- Fiche detaillee d'un employe (tout l'historique) ---
+        function openEmpDetail(id){ paieEmpDetail = id; paieView = 'employes'; render(); }
+        function closeEmpDetail(){ paieEmpDetail = null; render(); }
+
+        function renderPaieEmployeDetail(empId){
+            const e = empById(empId);
+            if(!e){ paieEmpDetail = null; return renderPaieEmployes(); }
+            const mine = salaryEntries.filter(s=>s.empId===empId);
+            const backBtn = `<button class="btn-action" style="width:auto; padding:10px 16px; background:var(--panel); border:1px solid var(--border); color:var(--text);" onclick="closeEmpDetail()"><i class="fas fa-arrow-left"></i> Retour</button>`;
+            const headerBar = `<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px; flex-wrap:wrap; gap:10px;">
+                    ${backBtn}
+                    <button class="btn-action" style="width:auto;" onclick="openEmpModal('${e.id}')"><i class="fas fa-edit"></i> Modifier</button>
+                </div>
+                <div class="card" style="display:flex; align-items:center; gap:15px; flex-wrap:wrap;">
+                    <div style="width:56px; height:56px; border-radius:14px; background:rgba(59,130,246,0.12); display:flex; align-items:center; justify-content:center; color:var(--brand); font-size:1.6rem;"><i class="fas fa-user-tie"></i></div>
+                    <div style="flex:1; min-width:150px;">
+                        <div style="font-size:1.3rem; font-weight:800;">${e.name}</div>
+                        <div style="color:var(--muted); font-size:0.9rem;">${e.type==='piece'?`A la piece &middot; ${e.pieceTarget} pieces = 1 journee (${fmtDA(e.dailyRate)} DA)`:`Au jour &middot; ${fmtDA(e.dailyRate)} DA/jour`} ${e.active?'':'&middot; <span style="color:var(--warning);">Inactif</span>'}</div>
+                    </div>
+                </div>`;
+
+            if(e.type==='piece'){
+                const st = pieceStats(empId);
+                const paidTotal = mine.filter(s=>s.kind==='pay').reduce((a,b)=>a+(b.amount||0),0);
+                const kpis = `<div class="dash-grid" style="grid-template-columns:repeat(auto-fit, minmax(150px,1fr));">
+                    <div class="kpi-card" style="cursor:default;"><div class="kpi-icon" style="color:var(--brand);"><i class="fas fa-layer-group"></i></div><div class="kpi-content"><h4>Pieces produites</h4><div class="val">${st.produced}</div></div></div>
+                    <div class="kpi-card" style="cursor:default;"><div class="kpi-icon" style="color:var(--success); background:rgba(16,185,129,0.1);"><i class="fas fa-calendar-check"></i></div><div class="kpi-content"><h4>Journees payees</h4><div class="val">${st.jPaid}</div></div></div>
+                    <div class="kpi-card" style="cursor:default;"><div class="kpi-icon" style="color:var(--warning); background:rgba(245,158,11,0.1);"><i class="fas fa-hourglass-half"></i></div><div class="kpi-content"><h4>En attente</h4><div class="val">${st.pending} p.</div></div></div>
+                    <div class="kpi-card" style="cursor:default;"><div class="kpi-icon" style="color:var(--success); background:rgba(16,185,129,0.1);"><i class="fas fa-money-bill"></i></div><div class="kpi-content"><h4>Total paye</h4><div class="val">${fmtDA(paidTotal)} DA</div></div></div>
+                </div>`;
+                const hist = mine.slice().sort((a,b)=>(b.date||'').localeCompare(a.date||'')).map(s=> s.kind==='prod'
+                    ? `<tr><td style="white-space:nowrap;">${isoToFr(s.date)}</td><td style="color:var(--brand); font-weight:600;">+${s.pieces} pieces produites</td><td style="text-align:right;"><i class="fas fa-trash" style="color:var(--danger); cursor:pointer;" onclick="delPiece('${s.id}')"></i></td></tr>`
+                    : `<tr><td style="white-space:nowrap;">${isoToFr(s.date)}</td><td style="color:var(--success); font-weight:600;">Paye : ${s.journees} journee(s) &middot; ${fmtDA(s.amount)} DA</td><td style="text-align:right;"><i class="fas fa-trash" style="color:var(--danger); cursor:pointer;" onclick="delPiece('${s.id}')"></i></td></tr>`
+                ).join('') || `<tr><td colspan="3" style="text-align:center; color:var(--muted);">Aucun mouvement.</td></tr>`;
+                return `${headerBar}${kpis}
+                    <div class="card"><h3><i class="fas fa-clock-rotate-left" style="color:var(--brand); margin-right:8px;"></i>Historique complet</h3>
+                        <div class="table-responsive" style="max-height:50vh;"><table><thead><tr><th>Date</th><th>Mouvement</th><th></th></tr></thead><tbody>${hist}</tbody></table></div>
+                    </div>`;
+            }
+
+            // Employe au jour
+            const paidTotal = mine.filter(s=>s.status==='paid').reduce((a,b)=>a+(b.amount||0),0);
+            const dueTotal = mine.filter(s=>s.status==='present').reduce((a,b)=>a+(b.amount||0),0);
+            const daysWorked = mine.filter(s=>s.status==='paid'||s.status==='present').length;
+            const absDays = mine.filter(s=>s.status==='absent').length;
+            const kpis = `<div class="dash-grid" style="grid-template-columns:repeat(auto-fit, minmax(150px,1fr));">
+                <div class="kpi-card" style="cursor:default;"><div class="kpi-icon" style="color:var(--success); background:rgba(16,185,129,0.1);"><i class="fas fa-check-double"></i></div><div class="kpi-content"><h4>Total paye</h4><div class="val">${fmtDA(paidTotal)} DA</div></div></div>
+                <div class="kpi-card" style="cursor:default;"><div class="kpi-icon" style="color:var(--warning); background:rgba(245,158,11,0.1);"><i class="fas fa-hand-holding-dollar"></i></div><div class="kpi-content"><h4>Reste du</h4><div class="val">${fmtDA(dueTotal)} DA</div></div></div>
+                <div class="kpi-card" style="cursor:default;"><div class="kpi-icon"><i class="fas fa-calendar-day"></i></div><div class="kpi-content"><h4>Jours travailles</h4><div class="val">${daysWorked}</div></div></div>
+                <div class="kpi-card" style="cursor:default;"><div class="kpi-icon" style="color:var(--danger); background:rgba(239,68,68,0.1);"><i class="fas fa-user-xmark"></i></div><div class="kpi-content"><h4>Absences</h4><div class="val">${absDays}</div></div></div>
+            </div>`;
+
+            // Regroupe par mois (recap) + historique detaille
+            const byMonth = {};
+            mine.forEach(s=>{ const ym=(s.date||'').slice(0,7); if(!ym) return; if(!byMonth[ym]) byMonth[ym]={paid:0,due:0}; if(s.status==='paid') byMonth[ym].paid+=(s.amount||0); else if(s.status==='present') byMonth[ym].due+=(s.amount||0); });
+            const monthRows = Object.keys(byMonth).sort().reverse().map(ym=>`<tr><td style="text-transform:capitalize; white-space:nowrap;">${monthLabel(ym)}</td><td style="text-align:right; color:var(--success); font-weight:600;">${fmtDA(byMonth[ym].paid)} DA</td><td style="text-align:right; color:var(--warning); font-weight:600;">${fmtDA(byMonth[ym].due)} DA</td></tr>`).join('') || `<tr><td colspan="3" style="text-align:center; color:var(--muted);">Aucun mois.</td></tr>`;
+
+            const detRows = mine.slice().sort((a,b)=>(b.date||'').localeCompare(a.date||'')).map(s=>{
+                let badge='';
+                if(s.status==='paid') badge='<span class="badge-status s-paid">Paye</span>';
+                else if(s.status==='present') badge='<span class="badge-status s-pending">Du</span>';
+                else badge='<span class="badge-status" style="background:rgba(239,68,68,0.12); color:var(--danger);">Absent</span>';
+                return `<tr><td style="white-space:nowrap;">${isoToFr(s.date)}</td><td>${badge}</td><td style="text-align:right; font-weight:600;">${s.status==='absent'?'&mdash;':fmtDA(s.amount)+' DA'}</td><td style="text-align:right;"><i class="fas fa-trash" style="color:var(--danger); cursor:pointer;" onclick="delDayEntry('${s.id}')"></i></td></tr>`;
+            }).join('') || `<tr><td colspan="4" style="text-align:center; color:var(--muted);">Aucun pointage.</td></tr>`;
+
+            return `${headerBar}${kpis}
+                <div class="grid-2">
+                    <div class="card" style="margin-bottom:0;">
+                        <h3><i class="fas fa-calendar-days" style="color:var(--brand); margin-right:8px;"></i>Recapitulatif par mois</h3>
+                        <div class="table-responsive" style="max-height:40vh;"><table><thead><tr><th>Mois</th><th style="text-align:right;">Paye</th><th style="text-align:right;">Du</th></tr></thead><tbody>${monthRows}</tbody></table></div>
+                    </div>
+                    <div class="card" style="margin-bottom:0;">
+                        <h3><i class="fas fa-clock-rotate-left" style="color:var(--brand); margin-right:8px;"></i>Historique detaille</h3>
+                        <div class="table-responsive" style="max-height:40vh;"><table><thead><tr><th>Date</th><th>Statut</th><th style="text-align:right;">Montant</th><th></th></tr></thead><tbody>${detRows}</tbody></table></div>
+                    </div>
+                </div>`;
+        }
+
+        function delDayEntry(id){
+            salaryEntries = salaryEntries.filter(s=>s.id!==id);
+            save(); render(); showToast('Pointage supprime','success');
+        }
+
 
         // --- INFO MODAL GUIDE ---
         function openInfoModal() {
