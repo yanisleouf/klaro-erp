@@ -428,7 +428,6 @@
         let dashChart = null, comptaChart = null;
         let produitsOpenFamily = null;
         let prodFilterStage = 'tous';
-        let rouleauxView = 'inventaire';
 
         // Paie
         let employees = [], salaryEntries = [];
@@ -982,20 +981,12 @@
                             <div><label>Poids initial (kg)</label><input id="rW" type="number" placeholder="0.00"></div>
                             <div><label>Seuil d'alerte (kg)</label><input id="rT" type="number" placeholder="5" value="5"></div>
                         </div>
-                        <label>Prix d'achat (DA)</label><input id="rP" type="number" placeholder="Ex: 8000">
                         <button class="btn-action" onclick="addRoll()"><i class="fas fa-save"></i> Ajouter au stock</button>
                         ${sessionAdmin ? `<button class="btn-action btn-ghost" style="margin-top:10px;" onclick="manageRollCategories()"><i class="fas fa-tags"></i> Gérer les catégories</button>` : ''}
                     </div>
                     <div class="card">
-                        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
-                            <h3 style="margin:0;"><i class="fas fa-boxes-stacked" style="color:var(--brand); margin-right:8px;"></i>Rouleaux <span style="color:var(--muted); font-weight:400; font-size:0.85rem;">(${filtered.length})</span></h3>
-                            <div class="chip-tabs" style="margin:0;">
-                                <button class="chip-tab ${rouleauxView === 'inventaire' ? 'active' : ''}" onclick="rouleauxView='inventaire'; render();"><i class="fas fa-boxes-stacked"></i> Inventaire</button>
-                                <button class="chip-tab ${rouleauxView === 'couts' ? 'active' : ''}" onclick="rouleauxView='couts'; render();"><i class="fas fa-coins"></i> Taille &amp; Coûts</button>
-                            </div>
-                        </div>
-                        <div class="table-responsive" style="max-height: 460px; margin-top:15px;">
-                        ${rouleauxView === 'inventaire' ? `
+                        <h3><i class="fas fa-boxes-stacked" style="color:var(--brand); margin-right:8px;"></i>Inventaire Rouleaux <span style="color:var(--muted); font-weight:400; font-size:0.85rem;">(${filtered.length})</span></h3>
+                        <div class="table-responsive" style="max-height: 460px;">
                             <table>
                                 <thead><tr><th>Réf.</th><th>Catégorie</th><th>Couleur</th><th style="text-align:right;">Reste</th><th style="text-align:center;">Seuil</th><th style="text-align:center;">Action</th></tr></thead>
                                 <tbody>${filtered.length ? filtered.map(x => `<tr>
@@ -1008,24 +999,7 @@
                                         ${sessionAdmin ? `<button class="icon-btn i-edit" onclick="editRoll('${x.id}')" title="Modifier"><i class="fas fa-edit"></i></button><button class="icon-btn i-del" onclick="delRoll('${x.id}')" title="Supprimer"><i class="fas fa-trash"></i></button>` : `<i class="fas fa-lock" style="color:var(--border);" title="Sécurisé"></i>`}
                                     </td>
                                 </tr>`).join('') : '<tr><td colspan="6" style="text-align:center; color:var(--muted); padding:20px;">Aucun rouleau trouvé</td></tr>'}</tbody>
-                            </table>` : `
-                            <table>
-                                <thead><tr><th>Réf.</th><th style="text-align:right;">Taille</th><th style="text-align:right;">Prix d'achat</th><th style="text-align:right;">Consommé</th><th style="text-align:right;">Reste</th></tr></thead>
-                                <tbody>${filtered.length ? filtered.map(x => {
-                                    const used = Math.max(0, (parseFloat(x.weight) || 0) - (parseFloat(x.res) || 0));
-                                    const pct = x.weight > 0 ? Math.min(100, (used / x.weight) * 100) : 0;
-                                    return `<tr>
-                                    <td><span style="background:var(--bg); padding:4px 8px; border-radius:6px; font-family:monospace; border:1px solid var(--border);">${x.ref}</span></td>
-                                    <td style="text-align:right;">${x.weight} kg</td>
-                                    <td style="text-align:right; color:var(--neon);">${x.price ? fmtDA(x.price) + ' DA' : '<span style="color:var(--muted);">-</span>'}</td>
-                                    <td style="text-align:right;">
-                                        <div>${used.toFixed(2)} kg</div>
-                                        <div style="width:100%; height:5px; background:var(--bg); border-radius:3px; margin-top:4px; overflow:hidden;"><div style="width:${pct.toFixed(0)}%; height:100%; background:var(--brand);"></div></div>
-                                    </td>
-                                    <td style="text-align:right; font-weight:800; color:${x.res <= (x.threshold || 5) ? 'var(--danger)' : 'var(--text)'}">${x.res} kg</td>
-                                </tr>`;
-                                }).join('') : '<tr><td colspan="5" style="text-align:center; color:var(--muted); padding:20px;">Aucun rouleau trouvé</td></tr>'}</tbody>
-                            </table>`}
+                            </table>
                         </div>
                     </div>
                 </div>`;
@@ -1034,9 +1008,8 @@
         function addRoll() {
             const r = document.getElementById('rR').value.trim(), w = document.getElementById('rW').value, t = document.getElementById('rT').value;
             const cat = document.getElementById('rCat').value, col = document.getElementById('rCol').value.trim();
-            const price = parseFloat(document.getElementById('rP').value) || 0;
             if (r && w) {
-                rolls.unshift({ id: uid('roll'), ref: r, category: cat, color: col, weight: parseFloat(w), res: parseFloat(w).toFixed(2), threshold: parseFloat(t) || 5, price, ts: Date.now() });
+                rolls.unshift({ id: uid('roll'), ref: r, category: cat, color: col, weight: parseFloat(w), res: parseFloat(w).toFixed(2), threshold: parseFloat(t) || 5, ts: Date.now() });
                 logAudit(`Rouleau ajouté: ${r} (${cat}${col ? ', ' + col : ''})`); render(); showToast("Rouleau ajouté.", "success");
             } else showToast("Référence et poids requis.", "warning");
         }
@@ -1059,10 +1032,6 @@
                     <div><label>Reste (kg)</label><input id="e_rRes" type="number" value="${r.res}" style="margin-bottom:10px;"></div>
                     <div><label>Seuil (kg)</label><input id="e_rT" type="number" value="${r.threshold || 5}" style="margin-bottom:10px;"></div>
                 </div>
-                <div class="grid-2">
-                    <div><label>Taille / Poids initial (kg)</label><input id="e_rW" type="number" value="${r.weight || 0}" style="margin-bottom:10px;"></div>
-                    <div><label>Prix d'achat (DA)</label><input id="e_rP" type="number" value="${r.price || 0}" style="margin-bottom:10px;"></div>
-                </div>
             </div>`;
             openModal('custom', 'Modifier le Rouleau', html, (val) => {
                 if (val) {
@@ -1071,8 +1040,6 @@
                     r.color = document.getElementById('e_rCol').value;
                     r.res = parseFloat(document.getElementById('e_rRes').value) || 0;
                     r.threshold = parseFloat(document.getElementById('e_rT').value) || 5;
-                    r.weight = parseFloat(document.getElementById('e_rW').value) || r.weight;
-                    r.price = parseFloat(document.getElementById('e_rP').value) || 0;
                     logAudit(`Rouleau modifié: ${r.ref}`); render(); showToast("Rouleau mis à jour.", "success");
                 }
             }, 'fa-weight-hanging', 'var(--brand)');
